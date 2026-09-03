@@ -1,0 +1,9 @@
+{
+  "name": "@run-flyover/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"dev":"vite","build":"vite build","typecheck":"tsc --noEmit","test":"vitest run","lint":"eslint ."},
+  "dependencies": {"@vitejs/plugin-react":"latest","maplibre-gl":"latest","react":"^18.3.1","react-dom":"^18.3.1"},
+  "devDependencies": {"typescript":"latest","vite":"latest","vitest":"latest","eslint":"latest"}
+}

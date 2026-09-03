@@ -1,0 +1,14 @@
+{
+  "name": "run-flyover",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @run-flyover/api --filter @run-flyover/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @run-flyover/api db:generate",
+    "db:migrate": "pnpm --filter @run-flyover/api db:migrate"
+  }
+}
