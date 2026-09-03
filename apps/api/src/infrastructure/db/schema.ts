@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, doublePrecision, integer, bigserial, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, doublePrecision, integer, bigserial, uniqueIndex, unique, index, text, bigint } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -54,7 +54,7 @@ export const activityTrackPoints = pgTable('activity_track_points', {
   cadence: doublePrecision('cadence'),
   power: integer('power'),
   temperatureCelsius: doublePrecision('temperature_celsius'),
-}, (table) => ({ activitySequenceIdx: index('track_activity_sequence_idx').on(table.activityId, table.sequence) }));
+}, (table) => ({ activitySequenceIdx: unique('track_activity_sequence_unique').on(table.activityId, table.sequence), activityTimestampIdx: index('track_activity_timestamp_idx').on(table.activityId, table.timestamp) }));
 
 export const activityLaps = pgTable('activity_laps', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -69,4 +69,16 @@ export const activityLaps = pgTable('activity_laps', {
   avgCadence: doublePrecision('avg_cadence'),
   elevationGainMeters: doublePrecision('elevation_gain_meters'),
   elevationLossMeters: doublePrecision('elevation_loss_meters'),
-});
+}, (table) => ({ activityLapUnique: unique('activity_lap_unique').on(table.activityId, table.lapIndex) }));
+
+export const activityFiles = pgTable('activity_files', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'cascade' }),
+  fileType: varchar('file_type', { length: 32 }).notNull(),
+  storageProvider: varchar('storage_provider', { length: 32 }).notNull(),
+  storageKey: text('storage_key').notNull(),
+  contentType: varchar('content_type', { length: 128 }),
+  fileSize: bigint('file_size', { mode: 'number' }),
+  sha256: varchar('sha256', { length: 64 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ activityFileUnique: unique('activity_file_unique').on(table.activityId, table.fileType) }));

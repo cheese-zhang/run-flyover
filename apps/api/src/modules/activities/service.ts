@@ -1,37 +1,70 @@
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, asc } from 'drizzle-orm';
 import { db } from '../../infrastructure/db/index.js';
-import { activities, activityTrackPoints } from '../../infrastructure/db/schema.js';
+import { activities, activityLaps, activityTrackPoints } from '../../infrastructure/db/schema.js';
 import type { ParsedActivity } from '@run-flyover/fit-parser';
+import { processParsedActivity } from '@run-flyover/activity-processor';
 
 export async function createActivity(parsed: ParsedActivity) {
-  if (!parsed.startedAt) throw new Error('FIT activity has no start time');
+  const processed = processParsedActivity(parsed);
   const [activity] = await db.insert(activities).values({
-    source: 'UPLOAD', activityType: 'RUNNING', activityName: parsed.name,
-    deviceName: parsed.deviceName, startedAt: parsed.startedAt,
-    durationSeconds: parsed.durationSeconds == null ? null : Math.round(parsed.durationSeconds),
-    distanceMeters: parsed.distanceMeters, elevationGainMeters: parsed.elevationGainMeters,
-    elevationLossMeters: parsed.elevationLossMeters, calories: parsed.calories,
-    avgSpeedMps: parsed.averageSpeedMps, maxSpeedMps: parsed.maximumSpeedMps,
-    avgHeartRate: parsed.averageHeartRate, maxHeartRate: parsed.maximumHeartRate,
-    avgCadence: parsed.averageCadence,
+    source: 'UPLOAD',
+    sourceActivityId: crypto.randomUUID(),
+    activityType: processed.type,
+    activityName: processed.name,
+    deviceName: processed.deviceName,
+    startedAt: processed.startedAt,
+    endedAt: processed.endedAt,
+    durationSeconds: Math.round(processed.durationSeconds),
+    distanceMeters: processed.distanceMeters,
+    elevationGainMeters: processed.elevationGainMeters,
+    elevationLossMeters: processed.elevationLossMeters,
+    calories: processed.calories,
+    avgSpeedMps: processed.averageSpeedMps,
+    maxSpeedMps: processed.maximumSpeedMps,
+    avgHeartRate: processed.averageHeartRate == null ? undefined : Math.round(processed.averageHeartRate),
+    maxHeartRate: processed.maximumHeartRate == null ? undefined : Math.round(processed.maximumHeartRate),
+    avgCadence: processed.averageCadence,
+    maxCadence: processed.maximumCadence,
+    status: 'READY',
   }).returning();
 
-  const points = parsed.records
-    .filter((r) => r.latitude !== undefined && r.longitude !== undefined)
-    .map((r, sequence) => ({
-      activityId: activity.id, sequence, timestamp: r.timestamp,
-      latitude: r.latitude!, longitude: r.longitude!, elevationMeters: r.elevationMeters,
-      distanceMeters: r.distanceMeters, speedMps: r.speedMps,
-      paceSecondsPerKm: r.speedMps && r.speedMps > 0 ? 1000 / r.speedMps : undefined,
-      heartRate: r.heartRate, cadence: r.cadence, power: r.power,
-      temperatureCelsius: r.temperatureCelsius,
-    }));
-  if (points.length) await db.insert(activityTrackPoints).values(points);
+  if (processed.trackPoints.length) await db.insert(activityTrackPoints).values(processed.trackPoints.map((point) => ({
+    activityId: activity.id,
+    sequence: point.sequence,
+    timestamp: point.timestamp,
+    latitude: point.latitude,
+    longitude: point.longitude,
+    elevationMeters: point.elevationMeters,
+    distanceMeters: point.distanceMeters,
+    speedMps: point.speedMps,
+    paceSecondsPerKm: point.paceSecondsPerKm,
+    heartRate: point.heartRate,
+    cadence: point.cadence,
+    power: point.power,
+    temperatureCelsius: point.temperatureCelsius,
+  })));
+
+  if (parsed.laps.length) await db.insert(activityLaps).values(parsed.laps.map((lap) => ({
+    activityId: activity.id,
+    lapIndex: lap.lapIndex,
+    startTime: lap.startTime,
+    durationSeconds: lap.durationSeconds == null ? undefined : Math.round(lap.durationSeconds),
+    distanceMeters: lap.distanceMeters,
+    avgSpeedMps: lap.averageSpeedMps,
+    avgHeartRate: lap.averageHeartRate == null ? undefined : Math.round(lap.averageHeartRate),
+    maxHeartRate: lap.maximumHeartRate == null ? undefined : Math.round(lap.maximumHeartRate),
+    avgCadence: lap.averageCadence,
+    elevationGainMeters: lap.elevationGainMeters,
+    elevationLossMeters: lap.elevationLossMeters,
+  })));
+
   return activity;
 }
 
-export async function listActivities(limit = 20) {
-  return db.select().from(activities).orderBy(desc(activities.startedAt)).limit(Math.min(limit, 100));
+export async function listActivities(page = 1, pageSize = 20) {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.min(Math.max(1, pageSize), 100);
+  return db.select().from(activities).orderBy(desc(activities.startedAt)).limit(safePageSize).offset((safePage - 1) * safePageSize);
 }
 
 export async function getActivity(id: string) {
@@ -40,5 +73,22 @@ export async function getActivity(id: string) {
 }
 
 export async function getTrack(id: string) {
-  return db.select().from(activityTrackPoints).where(eq(activityTrackPoints.activityId, id)).orderBy(activityTrackPoints.sequence);
+  return db.select({
+    sequence: activityTrackPoints.sequence,
+    timestamp: activityTrackPoints.timestamp,
+    latitude: activityTrackPoints.latitude,
+    longitude: activityTrackPoints.longitude,
+    elevationMeters: activityTrackPoints.elevationMeters,
+    distanceMeters: activityTrackPoints.distanceMeters,
+    speedMps: activityTrackPoints.speedMps,
+    paceSecondsPerKm: activityTrackPoints.paceSecondsPerKm,
+    heartRate: activityTrackPoints.heartRate,
+    cadence: activityTrackPoints.cadence,
+    power: activityTrackPoints.power,
+    temperatureCelsius: activityTrackPoints.temperatureCelsius,
+  }).from(activityTrackPoints).where(eq(activityTrackPoints.activityId, id)).orderBy(asc(activityTrackPoints.sequence));
+}
+
+export async function getLaps(id: string) {
+  return db.select().from(activityLaps).where(eq(activityLaps.activityId, id)).orderBy(asc(activityLaps.lapIndex));
 }

@@ -1,8 +1,9 @@
 {
   "name": "@run-flyover/api",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "scripts": {"dev":"tsx watch src/server.ts","build":"tsc","typecheck":"tsc --noEmit","test":"vitest run","lint":"eslint .","db:generate":"drizzle-kit generate","db:migrate":"drizzle-kit migrate"},
-  "dependencies": {"@fastify/cors":"latest","@fastify/multipart":"latest","@fastify/swagger":"latest","drizzle-orm":"latest","fastify":"latest","pg":"latest","zod":"latest","@run-flyover/domain":"workspace:*","@run-flyover/fit-parser":"workspace:*"},
+  "dependencies": {"@fastify/cors":"latest","@fastify/multipart":"latest","drizzle-orm":"latest","fastify":"latest","pg":"latest","zod":"latest","@run-flyover/domain":"workspace:*","@run-flyover/fit-parser":"workspace:*","@run-flyover/activity-processor":"workspace:*"},
   "devDependencies": {"@types/node":"latest","@types/pg":"latest","drizzle-kit":"latest","tsx":"latest","typescript":"latest","vitest":"latest","eslint":"latest"}
 }

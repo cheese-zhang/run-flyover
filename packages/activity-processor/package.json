@@ -1,0 +1,10 @@
+{
+  "name": "@run-flyover/activity-processor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {"test":"vitest run","typecheck":"tsc --noEmit","build":"tsc"},
+  "dependencies": {"@run-flyover/domain":"workspace:*","@run-flyover/fit-parser":"workspace:*"},
+  "devDependencies": {"typescript":"latest","vitest":"latest"}
+}
