@@ -1,0 +1,72 @@
+import { pgTable, uuid, varchar, timestamp, doublePrecision, integer, bigserial, uniqueIndex, index } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: varchar('email', { length: 320 }),
+  displayName: varchar('display_name', { length: 128 }),
+  timezone: varchar('timezone', { length: 64 }).notNull().default('Asia/Shanghai'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const activities = pgTable('activities', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  source: varchar('source', { length: 32 }).notNull(),
+  sourceActivityId: varchar('source_activity_id', { length: 255 }),
+  activityType: varchar('activity_type', { length: 64 }).notNull(),
+  activityName: varchar('activity_name', { length: 255 }),
+  deviceName: varchar('device_name', { length: 255 }),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  endedAt: timestamp('ended_at', { withTimezone: true }),
+  timezone: varchar('timezone', { length: 64 }),
+  durationSeconds: integer('duration_seconds'),
+  movingSeconds: integer('moving_seconds'),
+  distanceMeters: doublePrecision('distance_meters'),
+  elevationGainMeters: doublePrecision('elevation_gain_meters'),
+  elevationLossMeters: doublePrecision('elevation_loss_meters'),
+  calories: integer('calories'),
+  avgSpeedMps: doublePrecision('avg_speed_mps'),
+  maxSpeedMps: doublePrecision('max_speed_mps'),
+  avgHeartRate: integer('avg_heart_rate'),
+  maxHeartRate: integer('max_heart_rate'),
+  avgCadence: doublePrecision('avg_cadence'),
+  maxCadence: doublePrecision('max_cadence'),
+  avgPower: integer('avg_power'),
+  maxPower: integer('max_power'),
+  status: varchar('status', { length: 32 }).notNull().default('READY'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({ sourceActivityUnique: uniqueIndex('activities_source_source_activity_unique').on(table.source, table.sourceActivityId) }));
+
+export const activityTrackPoints = pgTable('activity_track_points', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'cascade' }),
+  sequence: integer('sequence').notNull(),
+  timestamp: timestamp('timestamp', { withTimezone: true }).notNull(),
+  latitude: doublePrecision('latitude').notNull(),
+  longitude: doublePrecision('longitude').notNull(),
+  elevationMeters: doublePrecision('elevation_meters'),
+  distanceMeters: doublePrecision('distance_meters'),
+  speedMps: doublePrecision('speed_mps'),
+  paceSecondsPerKm: doublePrecision('pace_seconds_per_km'),
+  heartRate: integer('heart_rate'),
+  cadence: doublePrecision('cadence'),
+  power: integer('power'),
+  temperatureCelsius: doublePrecision('temperature_celsius'),
+}, (table) => ({ activitySequenceIdx: index('track_activity_sequence_idx').on(table.activityId, table.sequence) }));
+
+export const activityLaps = pgTable('activity_laps', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'cascade' }),
+  lapIndex: integer('lap_index').notNull(),
+  startTime: timestamp('start_time', { withTimezone: true }),
+  durationSeconds: integer('duration_seconds'),
+  distanceMeters: doublePrecision('distance_meters'),
+  avgSpeedMps: doublePrecision('avg_speed_mps'),
+  avgHeartRate: integer('avg_heart_rate'),
+  maxHeartRate: integer('max_heart_rate'),
+  avgCadence: doublePrecision('avg_cadence'),
+  elevationGainMeters: doublePrecision('elevation_gain_meters'),
+  elevationLossMeters: doublePrecision('elevation_loss_meters'),
+});
