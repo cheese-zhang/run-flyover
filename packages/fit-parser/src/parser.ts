@@ -1,3 +1,5 @@
+import { Decoder, Stream } from '@garmin/fitsdk';
+
 export function semicirclesToDegrees(value: number): number {
   return value * (180 / 2147483648);
 }
@@ -13,6 +15,19 @@ export interface ParsedRecord {
   cadence?: number;
   power?: number;
   temperatureCelsius?: number;
+}
+
+export interface ParsedLap {
+  lapIndex: number;
+  startTime?: Date;
+  durationSeconds?: number;
+  distanceMeters?: number;
+  averageSpeedMps?: number;
+  averageHeartRate?: number;
+  maximumHeartRate?: number;
+  averageCadence?: number;
+  elevationGainMeters?: number;
+  elevationLossMeters?: number;
 }
 
 export interface ParsedActivity {
@@ -31,6 +46,7 @@ export interface ParsedActivity {
   maximumCadence?: number;
   deviceName?: string;
   records: ParsedRecord[];
+  laps: ParsedLap[];
 }
 
 export interface FitValidationResult {
@@ -47,18 +63,39 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function firstDefined<T>(...values: Array<T | undefined>): T | undefined {
-  return values.find((value) => value !== undefined);
+function dateValue(value: unknown): Date | undefined {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const date = new Date(value);
+    if (Number.isFinite(date.getTime())) return date;
+  }
+  return undefined;
 }
 
-/** Garmin FIT parser adapter. The SDK API is intentionally isolated here. */
+function getMessages(decoded: unknown): Record<string, unknown[]> {
+  if (!decoded || typeof decoded !== 'object') return {};
+  const value = decoded as { messages?: Record<string, unknown[]> };
+  return value.messages ?? {};
+}
+
+function first<T>(values: T[] | undefined): T | undefined {
+  return values?.[0];
+}
+
 export class GarminFitParser implements FitParser {
   validate(buffer: Buffer): FitValidationResult {
-    if (buffer.length < 12) return { valid: false, reason: 'FIT file is too small' };
+    if (!Buffer.isBuffer(buffer) || buffer.length < 14) return { valid: false, reason: 'FIT file is too small' };
     const headerSize = buffer.readUInt8(0);
-    if (headerSize < 12 || headerSize > buffer.length) return { valid: false, reason: 'Invalid FIT header' };
-    const signature = buffer.subarray(8, 12).toString('ascii');
-    if (signature !== '.FIT') return { valid: false, reason: 'Missing FIT signature' };
+    if (headerSize !== 12 && headerSize !== 14) return { valid: false, reason: 'Invalid FIT header size' };
+    if (buffer.length < headerSize + 2) return { valid: false, reason: 'FIT file is truncated' };
+    if (buffer.subarray(8, 12).toString('ascii') !== '.FIT') return { valid: false, reason: 'Missing FIT signature' };
+    try {
+      const stream = Stream.fromBuffer(buffer);
+      const decoder = new Decoder(stream);
+      if (!decoder.isFIT() || !decoder.checkIntegrity()) return { valid: false, reason: 'FIT integrity check failed' };
+    } catch (error) {
+      return { valid: false, reason: error instanceof Error ? error.message : 'FIT integrity check failed' };
+    }
     return { valid: true };
   }
 
@@ -66,61 +103,59 @@ export class GarminFitParser implements FitParser {
     const validation = this.validate(buffer);
     if (!validation.valid) throw new Error(validation.reason ?? 'Invalid FIT file');
 
-    // Garmin's FIT SDK is loaded dynamically so this package can still be type-checked
-    // in environments where the SDK's generated runtime is not available yet.
-    // The concrete decode adapter can be extended without changing the domain contract.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sdk = require('@garmin/fitsdk');
-    const Decoder = sdk.Decoder;
-    const Stream = sdk.Stream;
-    const stream = Stream.fromBuffer(buffer);
-    const decoder = new Decoder(stream);
-    const decoded = decoder.read();
-    const messages = decoded?.[1] ?? decoded?.messages ?? decoded;
-    const records: ParsedRecord[] = [];
-    let session: any;
-    let deviceName: string | undefined;
+    const decoder = new Decoder(Stream.fromBuffer(buffer));
+    const { messages, errors } = decoder.read();
+    if (errors.length) throw new Error(`FIT decode failed: ${errors.map((error) => error.message).join('; ')}`);
 
-    for (const message of Array.isArray(messages) ? messages : []) {
-      const type = message?.name ?? message?.messageName ?? message?.type;
-      const fields = message?.fields ?? message;
-      if (type === 'record') {
-        const lat = numberValue(fields.positionLat ?? fields.position_lat);
-        const lon = numberValue(fields.positionLong ?? fields.position_long);
-        records.push({
-          timestamp: new Date(fields.timestamp),
-          latitude: lat === undefined ? undefined : semicirclesToDegrees(lat),
-          longitude: lon === undefined ? undefined : semicirclesToDegrees(lon),
-          elevationMeters: numberValue(fields.altitude),
-          distanceMeters: numberValue(fields.distance),
-          speedMps: numberValue(fields.speed),
-          heartRate: numberValue(fields.heartRate ?? fields.heart_rate),
-          cadence: numberValue(fields.cadence),
-          power: numberValue(fields.power),
-          temperatureCelsius: numberValue(fields.temperature),
-        });
-      } else if (type === 'session') {
-        session = fields;
-      } else if (type === 'device_info') {
-        deviceName = fields.productName ?? fields.product_name;
-      }
-    }
+    const records = (messages.recordMesgs ?? []).map((fields) => {
+      const lat = numberValue(fields.positionLat);
+      const lon = numberValue(fields.positionLong);
+      return {
+        timestamp: dateValue(fields.timestamp) ?? new Date(NaN),
+        latitude: lat == null ? undefined : semicirclesToDegrees(lat),
+        longitude: lon == null ? undefined : semicirclesToDegrees(lon),
+        elevationMeters: numberValue(fields.altitude),
+        distanceMeters: numberValue(fields.distance),
+        speedMps: numberValue(fields.speed),
+        heartRate: numberValue(fields.heartRate),
+        cadence: numberValue(fields.cadence),
+        power: numberValue(fields.power),
+        temperatureCelsius: numberValue(fields.temperature),
+      } satisfies ParsedRecord;
+    }).filter((record) => Number.isFinite(record.timestamp.getTime()));
 
+    const session = first(messages.sessionMesgs) as Record<string, unknown> | undefined;
+    const laps = (messages.lapMesgs ?? []).map((fields, index) => ({
+      lapIndex: index,
+      startTime: dateValue(fields.startTime),
+      durationSeconds: numberValue(fields.totalTimerTime),
+      distanceMeters: numberValue(fields.totalDistance),
+      averageSpeedMps: numberValue(fields.avgSpeed),
+      averageHeartRate: numberValue(fields.avgHeartRate),
+      maximumHeartRate: numberValue(fields.maxHeartRate),
+      averageCadence: numberValue(fields.avgCadence),
+      elevationGainMeters: numberValue(fields.totalAscent),
+      elevationLossMeters: numberValue(fields.totalDescent),
+    }));
+
+    const deviceInfo = first(messages.deviceInfoMesgs) as Record<string, unknown> | undefined;
     return {
-      name: session?.name,
-      startedAt: session?.startTime ? new Date(session.startTime) : records[0]?.timestamp,
-      durationSeconds: numberValue(session?.totalTimerTime ?? session?.total_timer_time),
-      distanceMeters: numberValue(session?.totalDistance ?? session?.total_distance),
-      elevationGainMeters: numberValue(session?.totalAscent ?? session?.total_ascent),
-      elevationLossMeters: numberValue(session?.totalDescent ?? session?.total_descent),
-      calories: numberValue(session?.totalCalories ?? session?.total_calories),
-      averageSpeedMps: numberValue(session?.avgSpeed ?? session?.avg_speed),
-      maximumSpeedMps: numberValue(session?.maxSpeed ?? session?.max_speed),
-      averageHeartRate: numberValue(session?.avgHeartRate ?? session?.avg_heart_rate),
-      maximumHeartRate: numberValue(session?.maxHeartRate ?? session?.max_heart_rate),
-      averageCadence: numberValue(session?.avgCadence ?? session?.avg_cadence),
-      deviceName,
-      records: records.filter((record) => Number.isFinite(record.timestamp.getTime())),
+      name: typeof session?.sport === 'string' ? session.sport : undefined,
+      startedAt: dateValue(session?.startTime) ?? records[0]?.timestamp,
+      durationSeconds: numberValue(session?.totalTimerTime),
+      distanceMeters: numberValue(session?.totalDistance),
+      elevationGainMeters: numberValue(session?.totalAscent),
+      elevationLossMeters: numberValue(session?.totalDescent),
+      calories: numberValue(session?.totalCalories),
+      averageSpeedMps: numberValue(session?.avgSpeed),
+      maximumSpeedMps: numberValue(session?.maxSpeed),
+      averageHeartRate: numberValue(session?.avgHeartRate),
+      maximumHeartRate: numberValue(session?.maxHeartRate),
+      averageCadence: numberValue(session?.avgCadence),
+      maximumCadence: numberValue(session?.maxCadence),
+      deviceName: typeof deviceInfo?.productName === 'string' ? deviceInfo.productName : undefined,
+      records,
+      laps,
     };
   }
 }
