@@ -15,12 +15,12 @@ type Activity = {
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
-function formatDistance(meters?: number | null) { return meters == null ? '-' : `${(meters / 1000).toFixed(2)} km`; }
-function formatDuration(seconds?: number | null) {
+export function formatDistance(meters?: number | null) { return meters == null ? '-' : `${(meters / 1000).toFixed(2)} km`; }
+export function formatDuration(seconds?: number | null) {
   if (seconds == null) return '-';
   return `${Math.floor(seconds / 3600)}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
-function formatPace(speed?: number | null) {
+export function formatPace(speed?: number | null) {
   if (!speed || speed <= 0) return '-';
   const total = Math.round(1000 / speed);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')} /km`;
